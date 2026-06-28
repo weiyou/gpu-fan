@@ -88,9 +88,20 @@ cp -R dist/GpuFan.app /Applications/
 open /Applications/GpuFan.app
 ```
 
+`install` also symlinks the CLI to `/usr/local/bin/fancurvectl`, so after the
+first install you can drop the `.build/debug/` prefix and just run `fancurvectl
+…` from anywhere. The symlink points at your build directory, so a later
+`swift build` is picked up automatically.
+
 Then click the menu-bar icon and turn on **Active fan control**. Toggle
 **Launch at login** to have the app return after a reboot (the daemon already
 does, on its own).
+
+> **One controller at a time.** The daemon and a foreground `fancurvectl run`
+> both drive the same fan, so they can't run together — whichever starts second
+> is refused (the daemon waits and yields; the CLI prints how to observe or stop
+> the daemon). Use `run --dry-run` to watch alongside the daemon without
+> conflict.
 
 To remove everything:
 
@@ -108,8 +119,8 @@ rm -rf /Applications/GpuFan.app
 | `temps` | no | All `T*` temperature sensors, hottest first |
 | `gpu [seconds]` | no | Stream GPU utilization |
 | `log [seconds]` | no | CSV of load + temp + RPM under the **stock** controller |
-| `run` | yes | Live control loop in the foreground |
-| `run --dry-run` | no | Observe: show desired RPM vs the built-in's actual, no writes |
+| `run [--calm\|--responsive]` | yes | Live control loop in the foreground (override the profile) |
+| `run --dry-run [--calm\|--responsive]` | no | Observe: show desired RPM vs the built-in's actual, no writes |
 | `spike --rpm N --seconds S` | yes | Force a fan speed briefly, then restore (hardware test) |
 | `install` / `uninstall` | yes | Manage the LaunchDaemon |
 
