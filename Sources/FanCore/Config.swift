@@ -240,7 +240,11 @@ public enum Paths {
     public static let dir = "/Library/Application Support/gpu-fan"
     public static let config = dir + "/config.json"
     public static let telemetry = dir + "/telemetry.json"
+    /// Single-writer advisory lock so only one process drives the fan at a time.
+    public static let lock = dir + "/fan.lock"
     public static let daemonBin = "/usr/local/libexec/fancurved"
+    /// Where `install` symlinks the CLI so `fancurvectl` is on PATH.
+    public static let cliBin = "/usr/local/bin/fancurvectl"
     public static let daemonPlist = "/Library/LaunchDaemons/com.gpufan.fancurved.plist"
     public static let daemonLabel = "com.gpufan.fancurved"
 

@@ -180,6 +180,23 @@ case "run":
         cfg.enabled = true                      // running implies active control
         if flag("--calm") { cfg.profile = .calm }
         else if flag("--responsive") { cfg.profile = .responsive }
+
+        // Take the single-writer lock before controlling the fan, so we never
+        // race the daemon. Dry-run only observes, so it skips the lock entirely.
+        // `lock` is held for the lifetime of the run loop below.
+        var lock: FanLock?
+        if !dryRun {
+            lock = FanLock.acquire()
+            guard lock != nil else {
+                FileHandle.standardError.write(Data((
+                    "fan is already controlled by another process (the daemon?).\n" +
+                    "  observe instead:  fancurvectl run --dry-run\n" +
+                    "  or stop the daemon: sudo fancurvectl uninstall\n").utf8))
+                exit(1)
+            }
+        }
+        _ = lock  // keep the lock alive for the duration of `run`
+
         let loop = try ControlLoop(config: cfg)
         let b = loop.bounds
         let d = cfg.dynamics
@@ -218,6 +235,7 @@ case "install":
     do {
         try Installer.install()
         print("installed: daemon running as \(Paths.daemonLabel). Launch the menu-bar app to control it.")
+        print("CLI on PATH: \(Paths.cliBin) -> this binary (rebuilds picked up automatically).")
     } catch {
         FileHandle.standardError.write(Data("install failed: \(error)\n".utf8)); exit(1)
     }

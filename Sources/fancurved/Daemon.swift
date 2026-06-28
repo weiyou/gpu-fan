@@ -11,6 +11,7 @@ final class Daemon {
     private let foreground: Bool
     private var loop: ControlLoop?
     private var configMtime: Date?
+    private var lock: FanLock?   // held for the daemon's lifetime
 
     init(foreground: Bool) { self.foreground = foreground }
 
@@ -37,6 +38,16 @@ final class Daemon {
             log("must run as root (it controls the SMC fan)."); exit(1)
         }
         ensurePaths()
+
+        // Take the single-writer lock. Normally free; if a foreground
+        // `fancurvectl run` is controlling the fan, yield to it and wait rather
+        // than fighting (or crash-looping under launchd) — resume when it exits.
+        lock = FanLock.acquire()
+        if lock == nil {
+            log("fan controlled by another process; waiting for lock…")
+            while lock == nil { Thread.sleep(forTimeInterval: 1.0); lock = FanLock.acquire() }
+            log("acquired fan lock")
+        }
 
         let cfg = FanConfig.load()
         configMtime = Paths.modified(Paths.config)

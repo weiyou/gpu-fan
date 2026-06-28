@@ -63,6 +63,15 @@ enum Installer {
         try plistXML.write(toFile: Paths.daemonPlist, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: Paths.daemonPlist)
 
+        // put the CLI on PATH. A symlink (not a copy) so a later `swift build`
+        // is picked up automatically. Best-effort: a failure here shouldn't
+        // abort the install of the daemon itself.
+        let cliSrc = absolutePath(myExecutablePath())
+        try? fm.createDirectory(atPath: (Paths.cliBin as NSString).deletingLastPathComponent,
+                                withIntermediateDirectories: true)
+        try? fm.removeItem(atPath: Paths.cliBin)
+        try? fm.createSymbolicLink(atPath: Paths.cliBin, withDestinationPath: cliSrc)
+
         // (re)load: bootout is best-effort (may not be loaded yet)
         _ = run("/bin/launchctl", ["bootout", "system/\(Paths.daemonLabel)"])
         let s = run("/bin/launchctl", ["bootstrap", "system", Paths.daemonPlist])
@@ -75,6 +84,12 @@ enum Installer {
         _ = run("/bin/launchctl", ["bootout", "system/\(Paths.daemonLabel)"])
         try? fm.removeItem(atPath: Paths.daemonPlist)
         try? fm.removeItem(atPath: Paths.daemonBin)
+        // remove the PATH symlink, but only if it's ours (a symlink) — never a
+        // real binary a user may have placed at that path.
+        if let attrs = try? fm.attributesOfItem(atPath: Paths.cliBin),
+           attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+            try? fm.removeItem(atPath: Paths.cliBin)
+        }
         // belt-and-suspenders: ensure the fan is back under Apple's control
         try? SMCFan().restoreAuto()
     }
@@ -82,5 +97,11 @@ enum Installer {
     private static func myExecutablePath() -> String {
         if let p = Bundle.main.executablePath { return p }
         return CommandLine.arguments.first ?? ""
+    }
+
+    /// Resolve a possibly-relative invocation path to an absolute one, so the
+    /// PATH symlink doesn't depend on the install-time working directory.
+    private static func absolutePath(_ p: String) -> String {
+        p.hasPrefix("/") ? p : FileManager.default.currentDirectoryPath + "/" + p
     }
 }
