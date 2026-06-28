@@ -166,6 +166,8 @@ case "run":
     //        fancurvectl run --dry-run   observe only: shows the desired target
     //                                    next to Apple's actual RPM, no writes,
     //                                    no sudo, never enters forced mode.
+    //        --calm / --responsive       override the saved ramp-dynamics profile
+    //                                    for this session (A/B the wind-down feel).
     let dryRun = flag("--dry-run")
     guard dryRun || getuid() == 0 else {
         FileHandle.standardError.write(Data(
@@ -176,16 +178,22 @@ case "run":
         var cfg = FileManager.default.fileExists(atPath: FanConfig.path)
             ? FanConfig.load() : FanConfig.defaults()
         cfg.enabled = true                      // running implies active control
+        if flag("--calm") { cfg.profile = .calm }
+        else if flag("--responsive") { cfg.profile = .responsive }
         let loop = try ControlLoop(config: cfg)
         let b = loop.bounds
+        let d = cfg.dynamics
+        let prof = "\(cfg.profile) (ema \(d.smoothing), slew +\(Int(d.slewUpRPMPerSec))/-\(Int(d.slewDownRPMPerSec)) rpm/s)"
         if dryRun {
             print("OBSERVE MODE — fan NOT controlled (built-in behavior). " +
                   "Ctrl-C to stop.  fan range \(Int(b.min))–\(Int(b.max)) RPM.")
+            print("profile: \(prof)")
             print("  gpu%   gpuT°C  dieT°C  ->  desired  actual(builtin)")
         } else {
             gLoop = loop
             installFailsafes()
             print("control loop active (fan \(Int(b.min))–\(Int(b.max)) RPM). Ctrl-C to restore auto.")
+            print("profile: \(prof)")
             print("  gpu%   gpuT°C  dieT°C  ->  target  actual")
         }
         while true {
@@ -232,6 +240,7 @@ default:
       fancurvectl log [seconds]      # CSV: characterize stock fan curve
       sudo fancurvectl run           # live control loop (max of 3 curves)
       fancurvectl run --dry-run      # observe only: desired vs built-in, no sudo
+                  [--calm|--responsive]  # override ramp-dynamics profile
       sudo fancurvectl install       # install + start the LaunchDaemon
       sudo fancurvectl uninstall     # stop + remove the daemon
       sudo fancurvectl spike --rpm N --seconds S

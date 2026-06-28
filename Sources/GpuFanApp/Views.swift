@@ -18,6 +18,7 @@ struct ContentView: View {
             }
             Text("When off, the fan returns to macOS automatic control.")
                 .font(.caption).foregroundColor(.secondary)
+            responseProfile
             Toggle(isOn: Binding(get: { model.launchAtLogin },
                                  set: { model.setLaunchAtLogin($0) })) {
                 Text("Launch at login")
@@ -42,6 +43,23 @@ struct ContentView: View {
         }
         .padding(14)
         .frame(width: 340)
+    }
+
+    private var responseProfile: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Picker("Response", selection: Binding(
+                get: { model.config.profile },
+                set: { model.setProfile($0) })) {
+                Text("Responsive").tag(ResponseProfile.responsive)
+                Text("Calm").tag(ResponseProfile.calm)
+            }
+            .pickerStyle(.segmented)
+            Text(model.config.profile == .calm
+                 ? "Calm: long time constant, slow wind-down — brief load dips stay inaudible."
+                 : "Responsive: fan tracks load closely so you can hear how hard it's pushed.")
+                .font(.caption).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var header: some View {

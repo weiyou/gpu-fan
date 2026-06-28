@@ -22,9 +22,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 520)
-        popover.contentViewController =
-            NSHostingController(rootView: ContentView().environmentObject(model))
+        // Let the popover size itself to the SwiftUI content's fitting height
+        // rather than a fixed box. A hardcoded height clips (and mispositions)
+        // the panel whenever the controls grow; `.preferredContentSize` keeps
+        // the popover exactly as tall as it needs to be, and AppKit anchors it
+        // under the menu-bar item so it always stays on screen.
+        let host = NSHostingController(rootView: ContentView().environmentObject(model))
+        host.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = host
 
         model.start()
 

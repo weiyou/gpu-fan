@@ -1,5 +1,47 @@
 import Foundation
 
+/// How aggressively the loop tracks load. The *curves* are identical between
+/// profiles — only the ramp dynamics (time constant + slew) differ.
+///   - `responsive`: ear follows the load (you can hear how hard the GPU is
+///     pushed; brief dips move the fan).
+///   - `calm`: Apple-like. A long time constant plus fast-up/slow-down slew so
+///     transient GPU% wobble (e.g. an LLM shuffling 75↔100% second-to-second)
+///     doesn't translate into audible fan swings.
+public enum ResponseProfile: String, Codable, CaseIterable {
+    case responsive
+    case calm
+}
+
+/// The ramp-dynamics knobs that distinguish one `ResponseProfile` from another.
+/// Slew is intentionally split into up/down: the calm profile eases the fan
+/// *down* far slower than it spins it up, which is the single biggest factor in
+/// making the fan feel unobtrusive (it mirrors how Apple's controller behaves).
+public struct ResponseDynamics: Codable, Equatable {
+    /// EMA smoothing factor (0–1) applied to all input signals per ~1s tick.
+    /// Lower = smoother/slower. 0.35 ≈ a ~3s time constant; 0.10 ≈ ~10s.
+    public var smoothing: Double
+    /// Maximum RPM increase per second (ramp up).
+    public var slewUpRPMPerSec: Double
+    /// Maximum RPM decrease per second (ramp down). Keep this small relative to
+    /// up for an Apple-like wind-down that never hunts.
+    public var slewDownRPMPerSec: Double
+
+    public init(smoothing: Double, slewUpRPMPerSec: Double, slewDownRPMPerSec: Double) {
+        self.smoothing = smoothing
+        self.slewUpRPMPerSec = slewUpRPMPerSec
+        self.slewDownRPMPerSec = slewDownRPMPerSec
+    }
+
+    /// Original behavior: snappy and symmetric — tracks load closely.
+    public static let responsive = ResponseDynamics(
+        smoothing: 0.35, slewUpRPMPerSec: 700, slewDownRPMPerSec: 700)
+
+    /// Apple-like: long time constant, quick to spin up, slow to wind down, so
+    /// brief load dips don't produce audible fan swings.
+    public static let calm = ResponseDynamics(
+        smoothing: 0.10, slewUpRPMPerSec: 500, slewDownRPMPerSec: 120)
+}
+
 /// Persisted fan-control configuration. The daemon owns the canonical copy at
 /// `/Library/Application Support/gpu-fan/config.json`; the menu-bar app edits it
 /// over IPC.
@@ -18,26 +60,75 @@ public struct FanConfig: Codable, Equatable {
     public var dieTempCurve: Curve   // x = die °C
     /// Above this smoothed die temperature, force max RPM regardless of curves.
     public var hardCeilingDieC: Double
-    /// EMA smoothing factor (0–1) applied to all input signals per ~1s tick.
-    /// Lower = smoother/slower. 0.35 ≈ a ~3s time constant.
-    public var smoothing: Double
-    /// Maximum RPM change per second, to keep the fan from hunting.
-    public var maxSlewRPMPerSec: Double
+    /// Which ramp-dynamics profile is currently active.
+    public var profile: ResponseProfile
+    /// Tunable dynamics for each profile (curves are shared; only these differ).
+    public var responsiveDynamics: ResponseDynamics
+    public var calmDynamics: ResponseDynamics
+
+    /// The dynamics in force right now, selected by `profile`.
+    public var dynamics: ResponseDynamics {
+        profile == .calm ? calmDynamics : responsiveDynamics
+    }
 
     public init(enabled: Bool,
                 gpuCurve: Curve,
                 gpuTempCurve: Curve,
                 dieTempCurve: Curve,
                 hardCeilingDieC: Double = 113,
-                smoothing: Double = 0.35,
-                maxSlewRPMPerSec: Double = 700) {
+                profile: ResponseProfile = .responsive,
+                responsiveDynamics: ResponseDynamics = .responsive,
+                calmDynamics: ResponseDynamics = .calm) {
         self.enabled = enabled
         self.gpuCurve = gpuCurve
         self.gpuTempCurve = gpuTempCurve
         self.dieTempCurve = dieTempCurve
         self.hardCeilingDieC = hardCeilingDieC
-        self.smoothing = smoothing
-        self.maxSlewRPMPerSec = maxSlewRPMPerSec
+        self.profile = profile
+        self.responsiveDynamics = responsiveDynamics
+        self.calmDynamics = calmDynamics
+    }
+
+    // Custom Codable so configs written before profiles existed still load:
+    // legacy `smoothing` / `maxSlewRPMPerSec` migrate into `responsiveDynamics`
+    // (symmetric slew), preserving the user's tuned curves across the upgrade.
+    private enum CodingKeys: String, CodingKey {
+        case enabled, gpuCurve, gpuTempCurve, dieTempCurve, hardCeilingDieC
+        case profile, responsiveDynamics, calmDynamics
+        case smoothing, maxSlewRPMPerSec   // legacy, decode-only
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        gpuCurve = try c.decode(Curve.self, forKey: .gpuCurve)
+        gpuTempCurve = try c.decode(Curve.self, forKey: .gpuTempCurve)
+        dieTempCurve = try c.decode(Curve.self, forKey: .dieTempCurve)
+        hardCeilingDieC = try c.decodeIfPresent(Double.self, forKey: .hardCeilingDieC) ?? 113
+        profile = try c.decodeIfPresent(ResponseProfile.self, forKey: .profile) ?? .responsive
+        if let r = try c.decodeIfPresent(ResponseDynamics.self, forKey: .responsiveDynamics) {
+            responsiveDynamics = r
+        } else {
+            let s = try c.decodeIfPresent(Double.self, forKey: .smoothing)
+                ?? ResponseDynamics.responsive.smoothing
+            let slew = try c.decodeIfPresent(Double.self, forKey: .maxSlewRPMPerSec)
+                ?? ResponseDynamics.responsive.slewUpRPMPerSec
+            responsiveDynamics = ResponseDynamics(
+                smoothing: s, slewUpRPMPerSec: slew, slewDownRPMPerSec: slew)
+        }
+        calmDynamics = try c.decodeIfPresent(ResponseDynamics.self, forKey: .calmDynamics) ?? .calm
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(gpuCurve, forKey: .gpuCurve)
+        try c.encode(gpuTempCurve, forKey: .gpuTempCurve)
+        try c.encode(dieTempCurve, forKey: .dieTempCurve)
+        try c.encode(hardCeilingDieC, forKey: .hardCeilingDieC)
+        try c.encode(profile, forKey: .profile)
+        try c.encode(responsiveDynamics, forKey: .responsiveDynamics)
+        try c.encode(calmDynamics, forKey: .calmDynamics)
     }
 
     /// Defaults calibrated from on-device logs (Mac16,10, fan 1000–4900 RPM):

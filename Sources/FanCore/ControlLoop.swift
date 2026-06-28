@@ -50,7 +50,7 @@ public final class ControlLoop {
     }
 
     private func ema(_ prev: Double, _ x: Double) -> Double {
-        let a = config.smoothing
+        let a = config.dynamics.smoothing
         return prev + a * (x - prev)
     }
 
@@ -93,10 +93,13 @@ public final class ControlLoop {
         }
         target = min(maxRPM, max(minRPM, target))
 
-        // --- slew limit ---
-        let maxStep = config.maxSlewRPMPerSec
-        if target > lastTarget + maxStep { target = lastTarget + maxStep }
-        else if target < lastTarget - maxStep { target = lastTarget - maxStep }
+        // --- slew limit (asymmetric: ramp up and wind down at separate rates) ---
+        let dyn = config.dynamics
+        if target > lastTarget + dyn.slewUpRPMPerSec {
+            target = lastTarget + dyn.slewUpRPMPerSec
+        } else if target < lastTarget - dyn.slewDownRPMPerSec {
+            target = lastTarget - dyn.slewDownRPMPerSec
+        }
         lastTarget = target
 
         let actual = (try? fan.actualRPM()) ?? 0

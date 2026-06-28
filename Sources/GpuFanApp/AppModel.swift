@@ -62,6 +62,11 @@ final class AppModel: ObservableObject {
         save()
     }
 
+    func setProfile(_ profile: ResponseProfile) {
+        config.profile = profile
+        save()
+    }
+
     /// Persist the current config so the daemon picks it up on its next tick.
     func save() {
         do {
