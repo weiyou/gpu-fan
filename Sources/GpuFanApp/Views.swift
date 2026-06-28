@@ -76,12 +76,26 @@ struct ContentView: View {
 
     @ViewBuilder private var telemetry: some View {
         if let t = model.telemetry, model.daemonAlive {
-            VStack(spacing: 4) {
-                row("Fan", String(format: "%.0f rpm", t.fanRPM),
-                    t.forced ? "→ \(Int(t.targetRPM)) · \(t.driver)" : "auto")
-                row("GPU", String(format: "%.0f%%", t.gpuPct),
-                    String(format: "%.0f°C cluster", t.gpuTempC))
-                row("Die", String(format: "%.0f°C", t.dieTempC), "")
+            VStack(alignment: .leading, spacing: 3) {
+                // Columnar readout mirroring the CLI's `run` output:
+                //   gpu%  gpuT°C  dieT°C  ->  target  actual
+                Grid(horizontalSpacing: 14, verticalSpacing: 1) {
+                    GridRow {
+                        statHead("gpu%"); statHead("gpuT°C"); statHead("dieT°C")
+                        Text(" ").gridColumnAlignment(.center)
+                        statHead(t.forced ? "target" : "mode"); statHead("actual")
+                    }
+                    GridRow {
+                        statNum(String(format: "%.1f", t.gpuPct))
+                        statNum(String(format: "%.1f", t.gpuTempC))
+                        statNum(String(format: "%.1f", t.dieTempC))
+                        Text("→").foregroundColor(.secondary)
+                        statNum(t.forced ? String(format: "%.0f", t.targetRPM) : "auto")
+                        statNum(String(format: "%.0f", t.fanRPM))
+                    }
+                }
+                Text(t.forced ? "fan forced · driven by \(t.driver)" : "fan on macOS automatic control")
+                    .font(.caption2).foregroundColor(.secondary)
             }
         } else {
             Text("Daemon not running.\nInstall with:  sudo fancurvectl install")
@@ -90,13 +104,14 @@ struct ContentView: View {
         }
     }
 
-    private func row(_ label: String, _ value: String, _ trailing: String) -> some View {
-        HStack {
-            Text(label).frame(width: 40, alignment: .leading).foregroundColor(.secondary)
-            Text(value).bold()
-            Spacer()
-            Text(trailing).font(.caption).foregroundColor(.secondary)
-        }
+    private func statHead(_ s: String) -> some View {
+        Text(s).font(.caption).foregroundColor(.secondary)
+            .gridColumnAlignment(.trailing)
+    }
+
+    private func statNum(_ s: String) -> some View {
+        Text(s).font(.system(.body, design: .monospaced).weight(.semibold))
+            .monospacedDigit()
     }
 
     private var curves: some View {
