@@ -20,7 +20,7 @@ public final class ControlLoop {
     private let minRPM: Double
     private let maxRPM: Double
 
-    // EMA state for each input signal
+    // Envelope-follower state for each input signal (fast attack, slow decay)
     private var emaGpuPct = 0.0
     private var emaGpuTemp = 0.0
     private var emaDieTemp = 0.0
@@ -49,8 +49,13 @@ public final class ControlLoop {
         self.config = config
     }
 
-    private func ema(_ prev: Double, _ x: Double) -> Double {
-        let a = config.dynamics.smoothing
+    /// Asymmetric EMA, like a sound-level meter: rising readings are tracked at
+    /// the attack rate (1.0 = instantly), falling readings decay slowly. The
+    /// stats are still read at full rate every tick — only the value the curves
+    /// see is held up on the way down.
+    private func follow(_ prev: Double, _ x: Double) -> Double {
+        let dyn = config.dynamics
+        let a = x > prev ? dyn.attackSmoothing : dyn.decaySmoothing
         return prev + a * (x - prev)
     }
 
@@ -68,14 +73,14 @@ public final class ControlLoop {
         let cpuPct = cpu.utilization()           // for telemetry/observability
         let temps = sensors.snapshot()
 
-        // --- smooth (seed on first tick to avoid a slow ramp from zero) ---
+        // --- envelope-follow (seed on first tick to avoid a slow ramp from zero) ---
         if !primed {
             emaGpuPct = rawGpuPct; emaGpuTemp = temps.gpu; emaDieTemp = temps.die
             primed = true
         } else {
-            emaGpuPct = ema(emaGpuPct, rawGpuPct)
-            emaGpuTemp = ema(emaGpuTemp, temps.gpu)
-            emaDieTemp = ema(emaDieTemp, temps.die)
+            emaGpuPct = follow(emaGpuPct, rawGpuPct)
+            emaGpuTemp = follow(emaGpuTemp, temps.gpu)
+            emaDieTemp = follow(emaDieTemp, temps.die)
         }
 
         // --- compute desired target from the three curves (always) ---

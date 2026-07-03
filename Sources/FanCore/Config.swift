@@ -1,45 +1,89 @@
 import Foundation
 
 /// How aggressively the loop tracks load. The *curves* are identical between
-/// profiles — only the ramp dynamics (time constant + slew) differ.
-///   - `responsive`: ear follows the load (you can hear how hard the GPU is
-///     pushed; brief dips move the fan).
-///   - `calm`: Apple-like. A long time constant plus fast-up/slow-down slew so
-///     transient GPU% wobble (e.g. an LLM shuffling 75↔100% second-to-second)
-///     doesn't translate into audible fan swings.
+/// profiles, and both read rising signals instantly (peak readings pass
+/// straight through) — they differ only in how long the decay lingers and how
+/// fast the fan itself is allowed to ramp.
+///   - `responsive`: short ~3s decay — ear follows the load (you can hear how
+///     hard the GPU is pushed; brief dips move the fan).
+///   - `calm`: like a sound-level meter — ~10s decay plus slow ramp-down, so
+///     transient GPU% dips (e.g. an LLM shuffling 75↔100% second-to-second)
+///     don't translate into audible fan swings, while real load spikes still
+///     get immediate cooling.
 public enum ResponseProfile: String, Codable, CaseIterable {
     case responsive
     case calm
 }
 
 /// The ramp-dynamics knobs that distinguish one `ResponseProfile` from another.
-/// Slew is intentionally split into up/down: the calm profile eases the fan
-/// *down* far slower than it spins it up, which is the single biggest factor in
-/// making the fan feel unobtrusive (it mirrors how Apple's controller behaves).
+/// Both smoothing and slew are split into up/down halves: signals are shaped by
+/// an envelope follower (fast attack, slow decay) and the resulting RPM target
+/// is slew-limited the same way. Easing the fan *down* far slower than it spins
+/// up is the single biggest factor in making it feel unobtrusive (it mirrors
+/// how Apple's controller behaves) — without delaying the response to load.
 public struct ResponseDynamics: Codable, Equatable {
-    /// EMA smoothing factor (0–1) applied to all input signals per ~1s tick.
-    /// Lower = smoother/slower. 0.35 ≈ a ~3s time constant; 0.10 ≈ ~10s.
-    public var smoothing: Double
+    /// EMA factor (0–1) applied per ~1s tick while a signal is RISING.
+    /// 1.0 = no lag: the envelope jumps straight to the new reading.
+    public var attackSmoothing: Double
+    /// EMA factor (0–1) applied per ~1s tick while a signal is FALLING.
+    /// Lower = longer decay. 0.35 ≈ a ~3s time constant; 0.10 ≈ ~10s.
+    public var decaySmoothing: Double
     /// Maximum RPM increase per second (ramp up).
     public var slewUpRPMPerSec: Double
     /// Maximum RPM decrease per second (ramp down). Keep this small relative to
     /// up for an Apple-like wind-down that never hunts.
     public var slewDownRPMPerSec: Double
 
-    public init(smoothing: Double, slewUpRPMPerSec: Double, slewDownRPMPerSec: Double) {
-        self.smoothing = smoothing
+    public init(attackSmoothing: Double, decaySmoothing: Double,
+                slewUpRPMPerSec: Double, slewDownRPMPerSec: Double) {
+        self.attackSmoothing = attackSmoothing
+        self.decaySmoothing = decaySmoothing
         self.slewUpRPMPerSec = slewUpRPMPerSec
         self.slewDownRPMPerSec = slewDownRPMPerSec
     }
 
-    /// Original behavior: snappy and symmetric — tracks load closely.
+    /// Snappy: the same instant attack as calm (both profiles read peaks
+    /// identically), but a short ~3s decay and fast symmetric slew, so the fan
+    /// still follows load dips closely.
     public static let responsive = ResponseDynamics(
-        smoothing: 0.35, slewUpRPMPerSec: 700, slewDownRPMPerSec: 700)
+        attackSmoothing: 1.0, decaySmoothing: 0.35,
+        slewUpRPMPerSec: 700, slewDownRPMPerSec: 700)
 
-    /// Apple-like: long time constant, quick to spin up, slow to wind down, so
-    /// brief load dips don't produce audible fan swings.
+    /// Peak-meter style: rising signals are taken at face value (the slew-up
+    /// limit alone paces the spin-up), falling signals decay on a ~10s time
+    /// constant, so brief load dips don't produce audible fan swings.
     public static let calm = ResponseDynamics(
-        smoothing: 0.10, slewUpRPMPerSec: 500, slewDownRPMPerSec: 120)
+        attackSmoothing: 1.0, decaySmoothing: 0.10,
+        slewUpRPMPerSec: 500, slewDownRPMPerSec: 120)
+
+    // Configs written before attack/decay were split carry a single symmetric
+    // `smoothing`; decode it into both halves so behavior is preserved. Encode
+    // still writes `smoothing` (= decay) so an older daemon binary can read a
+    // newer config during a mixed-version window.
+    private enum CodingKeys: String, CodingKey {
+        case attackSmoothing, decaySmoothing, slewUpRPMPerSec, slewDownRPMPerSec
+        case smoothing   // legacy symmetric value
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try c.decodeIfPresent(Double.self, forKey: .smoothing)
+        attackSmoothing = try c.decodeIfPresent(Double.self, forKey: .attackSmoothing)
+            ?? legacy ?? ResponseDynamics.responsive.attackSmoothing
+        decaySmoothing = try c.decodeIfPresent(Double.self, forKey: .decaySmoothing)
+            ?? legacy ?? ResponseDynamics.responsive.decaySmoothing
+        slewUpRPMPerSec = try c.decode(Double.self, forKey: .slewUpRPMPerSec)
+        slewDownRPMPerSec = try c.decode(Double.self, forKey: .slewDownRPMPerSec)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(attackSmoothing, forKey: .attackSmoothing)
+        try c.encode(decaySmoothing, forKey: .decaySmoothing)
+        try c.encode(decaySmoothing, forKey: .smoothing)
+        try c.encode(slewUpRPMPerSec, forKey: .slewUpRPMPerSec)
+        try c.encode(slewDownRPMPerSec, forKey: .slewDownRPMPerSec)
+    }
 }
 
 /// Persisted fan-control configuration. The daemon owns the canonical copy at
@@ -110,11 +154,12 @@ public struct FanConfig: Codable, Equatable {
             responsiveDynamics = r
         } else {
             let s = try c.decodeIfPresent(Double.self, forKey: .smoothing)
-                ?? ResponseDynamics.responsive.smoothing
+                ?? ResponseDynamics.responsive.decaySmoothing
             let slew = try c.decodeIfPresent(Double.self, forKey: .maxSlewRPMPerSec)
                 ?? ResponseDynamics.responsive.slewUpRPMPerSec
             responsiveDynamics = ResponseDynamics(
-                smoothing: s, slewUpRPMPerSec: slew, slewDownRPMPerSec: slew)
+                attackSmoothing: s, decaySmoothing: s,
+                slewUpRPMPerSec: slew, slewDownRPMPerSec: slew)
         }
         calmDynamics = try c.decodeIfPresent(ResponseDynamics.self, forKey: .calmDynamics) ?? .calm
     }

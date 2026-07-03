@@ -200,7 +200,8 @@ case "run":
         let loop = try ControlLoop(config: cfg)
         let b = loop.bounds
         let d = cfg.dynamics
-        let prof = "\(cfg.profile) (ema \(d.smoothing), slew +\(Int(d.slewUpRPMPerSec))/-\(Int(d.slewDownRPMPerSec)) rpm/s)"
+        let prof = "\(cfg.profile) (ema atk \(d.attackSmoothing)/dec \(d.decaySmoothing), " +
+            "slew +\(Int(d.slewUpRPMPerSec))/-\(Int(d.slewDownRPMPerSec)) rpm/s)"
         if dryRun {
             print("OBSERVE MODE — fan NOT controlled (built-in behavior). " +
                   "Ctrl-C to stop.  fan range \(Int(b.min))–\(Int(b.max)) RPM.")
