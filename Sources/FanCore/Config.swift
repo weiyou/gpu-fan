@@ -132,7 +132,7 @@ public struct FanConfig: Codable, Equatable {
     }
 
     /// Defaults calibrated from on-device logs (Mac16,10, fan 1000–4900 RPM):
-    /// idle→1000, CPU load→~2900 (≈ Apple's plateau), GPU load→~2450 (quiet).
+    /// idle→1000, CPU load ramps firmly from ~92°C die, GPU load→~2450 (quiet).
     /// RPM values are clamped to the machine's real min/max at apply time.
     public static func defaults() -> FanConfig {
         FanConfig(
@@ -159,16 +159,17 @@ public struct FanConfig: Codable, Equatable {
                 .init(x: 97,  rpm: 4200),
                 .init(x: 100, rpm: 4700),
             ]),
-            dieTempCurve: Curve(points: [      // TCMz °C -> RPM (matches Apple)
-                // Calibrated to the built-in integrator's steady state: under
-                // sustained CPU load it plateaus ~2950 RPM at die ~106°C. We
-                // mirror that equilibrium and hold a touch firmer above 108°C.
-                .init(x: 96,  rpm: 1000),
-                .init(x: 101, rpm: 1600),
-                .init(x: 104, rpm: 2300),
-                .init(x: 106, rpm: 2900),
-                .init(x: 108, rpm: 3250),
-                .init(x: 111, rpm: 4000),
+            dieTempCurve: Curve(points: [      // TCMz °C -> RPM (firmer than Apple)
+                // Retuned in use: ramps earlier (~92°C) and harder than the
+                // built-in integrator (which plateaus ~2950 RPM at die ~106°C),
+                // trading a little noise for a cooler CPU-load equilibrium and
+                // reaching max RPM just under the hard ceiling.
+                .init(x: 92,  rpm: 1000),
+                .init(x: 96.5, rpm: 1600),
+                .init(x: 100, rpm: 2400),
+                .init(x: 104, rpm: 3450),
+                .init(x: 108, rpm: 4370),
+                .init(x: 112, rpm: 4900),
             ])
         )
     }
