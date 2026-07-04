@@ -27,9 +27,9 @@ its own fan curve, ramping **proactively** when the GPU is busy.
 
 ## How it works
 
-The fan target is the **maximum of three curves**, each on its own smoothed
-input signal — so it's responsive to GPU load *and* never less aggressive than
-macOS under any workload:
+The fan target is the **maximum of three curves**, each on its own
+envelope-followed input signal — so it's responsive to GPU load *and* never
+less aggressive than macOS under any workload:
 
 ```
 target_rpm = max( gpuCurve(GPU %),
@@ -44,10 +44,24 @@ target_rpm = max( gpuCurve(GPU %),
 - **`dieTempCurve`** — driven by the hottest die sensor (`TCMz`); calibrated to
   match macOS's own ramp so CPU-heavy work is never under-cooled.
 
-The result is then EMA-smoothed, slew-rate-limited (no fan hunting), clamped to
-the machine's real RPM range, and overridden to maximum above a hard temperature
-ceiling. If anything goes wrong — a crash, a kill, an error — control always
-reverts to macOS's automatic controller.
+Each input signal is shaped like a sound-level meter: **rising readings pass
+straight through** (a real load spike gets immediate cooling — no smoothing
+lag), falling readings decay gradually. This matters because the raw
+hottest-sensor signal swings many °C tick-to-tick as the hotspot migrates
+between clusters; the envelope rides its peaks — the conservative reading —
+instead of averaging them away. The resulting target is slew-rate-limited (no
+fan hunting), clamped to the machine's real RPM range, and overridden to
+maximum above a hard temperature ceiling. If anything goes wrong — a crash, a
+kill, an error — control always reverts to macOS's automatic controller.
+
+Two **response profiles** share the same curves and differ only in dynamics:
+
+| Profile | Decay | Slew (up/down) | Feel |
+|---|---|---|---|
+| `responsive` | ~3 s | 700 / 700 rpm/s | The ear follows the load; brief dips move the fan |
+| `calm` | ~10 s | 500 / 120 rpm/s | Apple-like: quick to spin up, slow unobtrusive wind-down |
+
+Switch them from the menu-bar app or `fancurvectl run --calm|--responsive`.
 
 ### Components
 
@@ -130,14 +144,17 @@ fan or needing `sudo`.
 
 ## Tuning curves
 
-Edit them live in the app: each tab (**GPU %**, **GPU °C**, **Die °C**) is a
-draggable graph. Drag a point to reshape, double-click to add one, right-click to
-delete. A dashed line and dot show where you're operating right now. Changes save
-immediately and the daemon applies them within a second.
+Edit them live in the app: each tab (**gpu%**, **gpuT°C**, **dieT°C**) is a
+draggable graph — both temperature graphs share the same 50–120 °C axis so the
+curves are directly comparable. Drag a point to reshape, double-click to add
+one, right-click to delete. A dashed line and dot show where you're operating
+right now. Changes save immediately and the daemon applies them within a second.
 
 The defaults (in `Sources/FanCore/Config.swift`) were calibrated from on-device
-logs to give: idle → 1000 rpm (silent), CPU load → ~2900 rpm (≈ macOS), GPU load
-→ ~2450 rpm (quiet but cool). Reset to them anytime from the app.
+logs to give: idle → 1000 rpm (silent), GPU load → ~2450 rpm (quiet but cool),
+and a die curve that ramps firmly from ~92 °C — deliberately earlier and harder
+than macOS's own ~2950 rpm plateau — reaching max RPM just under the hard
+ceiling. Reset to them anytime from the app.
 
 ## Safety
 
