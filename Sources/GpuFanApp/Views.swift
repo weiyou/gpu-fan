@@ -120,9 +120,9 @@ struct ContentView: View {
                 .font(.caption).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Picker("", selection: $curveTab) {
-                Text("GPU %").tag(0)
-                Text("GPU °C").tag(1)
-                Text("Die °C").tag(2)
+                Text("gpu%").tag(0)
+                Text("gpuT°C").tag(1)
+                Text("dieT°C").tag(2)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -139,12 +139,12 @@ struct ContentView: View {
                                onCommit: { model.save() })
             case 1:
                 CurveGraphView(curve: $model.config.gpuTempCurve,
-                               xDomain: 55...102, yDomain: yMin...yMax,
+                               xDomain: 50...120, yDomain: yMin...yMax,
                                liveX: live?.gpuTempC, xUnit: "°C", accent: .orange,
                                onCommit: { model.save() })
             default:
                 CurveGraphView(curve: $model.config.dieTempCurve,
-                               xDomain: 70...118, yDomain: yMin...yMax,
+                               xDomain: 50...120, yDomain: yMin...yMax,
                                liveX: live?.dieTempC, xUnit: "°C", accent: .red,
                                onCommit: { model.save() })
             }
