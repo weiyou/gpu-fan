@@ -14,6 +14,10 @@ final class AppModel: ObservableObject {
     @Published var lastError: String?
 
     private var timer: Timer?
+    /// Mtime of config.json as of our last read/write, so the 1 Hz tick can
+    /// spot external edits (CLI, a reinstall seeding defaults) and reload
+    /// instead of clobbering them with our stale in-memory copy on next save.
+    private var configMtime: Date?
 
     func start() {
         reloadConfigFromDisk()
@@ -49,11 +53,17 @@ final class AppModel: ObservableObject {
         } else {
             daemonAlive = false
         }
+        // Same mtime polling the daemon uses for hot-reload, in the other
+        // direction: pick up config edits made behind our back.
+        if let m = Paths.modified(Paths.config), m != configMtime {
+            reloadConfigFromDisk()
+        }
     }
 
     func reloadConfigFromDisk() {
         if FileManager.default.fileExists(atPath: Paths.config) {
             config = FanConfig.load()
+            configMtime = Paths.modified(Paths.config)
         }
     }
 
@@ -71,6 +81,7 @@ final class AppModel: ObservableObject {
     func save() {
         do {
             try config.save()
+            configMtime = Paths.modified(Paths.config)
             lastError = nil
         } catch {
             lastError = "Couldn't write config — is the daemon installed? (sudo fancurvectl install)"
