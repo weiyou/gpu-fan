@@ -245,7 +245,7 @@ public struct Telemetry: Codable, Equatable {
     public var fanRPM: Double
     public var targetRPM: Double
     public var forced: Bool
-    /// Which input is currently setting the target: "gpu%", "gpuT", "die",
+    /// Which input is currently setting the target: "gpu%", "gpuT", "dieT",
     /// "ceiling", or "off". Lets the UI show why the fan is where it is.
     public var driver: String
     /// This machine's fan RPM bounds, so the UI can scale the curve graph.

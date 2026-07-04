@@ -94,7 +94,7 @@ public final class ControlLoop {
             target = maxRPM; driver = "ceiling"               // safety override
         } else {
             target = max(rpmGpu, rpmGpuTemp, rpmDie)
-            driver = target == rpmGpu ? "gpu%" : (target == rpmGpuTemp ? "gpuT" : "die")
+            driver = target == rpmGpu ? "gpu%" : (target == rpmGpuTemp ? "gpuT" : "dieT")
         }
         target = min(maxRPM, max(minRPM, target))
 
