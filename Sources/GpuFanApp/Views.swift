@@ -180,6 +180,10 @@ struct CurveGraphView: View {
         let span = yDomain.upperBound - yDomain.lowerBound
         return yDomain.lowerBound + Double(max(0, min(1, (h - vy) / h))) * span
     }
+    /// Rounds to the nearest multiple of `step` (1°C / 1% on x, 50 RPM on y).
+    private func snap(_ value: Double, to step: Double) -> Double {
+        (value / step).rounded() * step
+    }
 
     var body: some View {
         VStack(spacing: 2) {
@@ -226,8 +230,10 @@ struct CurveGraphView: View {
                                     .onChanged { value in
                                         let lo = i > 0 ? curve.points[i - 1].x + 0.5 : xDomain.lowerBound
                                         let hi = i < curve.points.count - 1 ? curve.points[i + 1].x - 0.5 : xDomain.upperBound
-                                        curve.points[i].x = min(hi, max(lo, dataX(value.location.x, w)))
-                                        curve.points[i].rpm = min(yDomain.upperBound, max(yDomain.lowerBound, dataY(value.location.y, h)))
+                                        let snappedX = snap(dataX(value.location.x, w), to: 1)
+                                        curve.points[i].x = min(hi, max(lo, snappedX))
+                                        let snappedRPM = snap(dataY(value.location.y, h), to: 50)
+                                        curve.points[i].rpm = min(yDomain.upperBound, max(yDomain.lowerBound, snappedRPM))
                                     }
                                     .onEnded { _ in onCommit() }
                             )
@@ -253,8 +259,9 @@ struct CurveGraphView: View {
                 .gesture(
                     SpatialTapGesture(count: 2, coordinateSpace: .named("graph"))
                         .onEnded { ev in
-                            curve.points.append(Curve.Point(x: dataX(ev.location.x, w),
-                                                            rpm: dataY(ev.location.y, h)))
+                            let x = min(xDomain.upperBound, max(xDomain.lowerBound, snap(dataX(ev.location.x, w), to: 1)))
+                            let rpm = min(yDomain.upperBound, max(yDomain.lowerBound, snap(dataY(ev.location.y, h), to: 50)))
+                            curve.points.append(Curve.Point(x: x, rpm: rpm))
                             curve.points.sort { $0.x < $1.x }
                             onCommit()
                         }

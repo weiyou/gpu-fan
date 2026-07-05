@@ -209,11 +209,12 @@ public struct FanConfig: Codable, Equatable {
                 // built-in integrator (which plateaus ~2950 RPM at die ~106°C),
                 // trading a little noise for a cooler CPU-load equilibrium and
                 // reaching max RPM just under the hard ceiling.
-                .init(x: 92,  rpm: 1000),
-                .init(x: 96.5, rpm: 1600),
-                .init(x: 100, rpm: 2400),
-                .init(x: 104, rpm: 3450),
-                .init(x: 108, rpm: 4370),
+                .init(x: 80,  rpm: 1000),
+                .init(x: 92,  rpm: 1600),
+                .init(x: 98,  rpm: 2400),
+                .init(x: 103, rpm: 3400),
+                .init(x: 107, rpm: 4300),
+                .init(x: 110, rpm: 4800),
                 .init(x: 112, rpm: 4900),
             ])
         )
