@@ -51,7 +51,9 @@ hottest-sensor signal swings many °C tick-to-tick as the hotspot migrates
 between clusters; the envelope rides its peaks — the conservative reading —
 instead of averaging them away. The resulting target is slew-rate-limited (no
 fan hunting), clamped to the machine's real RPM range, and overridden to
-maximum above a hard temperature ceiling. If anything goes wrong — a crash, a
+maximum above a hard temperature ceiling. Targets within 20 RPM of the last
+commanded speed are not re-sent (a write deadband — sub-audible moves don't
+churn the SMC), with a refresh write every ~10 s to keep forced mode asserted. If anything goes wrong — a crash, a
 kill, an error — control always reverts to macOS's automatic controller.
 
 Two **response profiles** share the same curves and differ only in dynamics:

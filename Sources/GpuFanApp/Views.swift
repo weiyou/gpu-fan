@@ -90,8 +90,8 @@ struct ContentView: View {
                         statNum(String(format: "%.1f", t.gpuTempC))
                         statNum(String(format: "%.1f", t.dieTempC))
                         Text("→").foregroundColor(.secondary)
-                        statNum(t.forced ? String(format: "%.0f", t.targetRPM) : "auto")
-                        statNum(String(format: "%.0f", t.fanRPM))
+                        statNum(t.forced ? rpmText(t.targetRPM) : "auto")
+                        statNum(rpmText(t.fanRPM))
                     }
                 }
                 Text(t.forced ? "fan forced · driven by \(t.driver)" : "fan on macOS automatic control")
@@ -102,6 +102,11 @@ struct ContentView: View {
                 .font(.caption).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// RPM readout snapped to 10 RPM so sensor jitter doesn't flicker the digits.
+    private func rpmText(_ rpm: Double) -> String {
+        String(format: "%.0f", (rpm / 10).rounded() * 10)
     }
 
     private func statHead(_ s: String) -> some View {

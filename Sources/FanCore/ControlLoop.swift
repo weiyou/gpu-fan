@@ -28,6 +28,19 @@ public final class ControlLoop {
 
     private var lastTarget: Double
 
+    // Write deadband: skip the SMC write when the target has moved less than
+    // this since the last write. The fan can't audibly or thermally resolve a
+    // 20 RPM change (~0.5% of range), so this just avoids churning the SMC
+    // when the smoothed inputs drift slightly.
+    private let writeDeadbandRPM = 20.0
+    /// Even inside the deadband, rewrite at least this often (in ticks ≈
+    /// seconds): each write re-asserts forced mode (`Ftst`/`F0Md`), so a
+    /// periodic refresh bounds how long a surprise mode flip by
+    /// thermalmonitord could go uncorrected.
+    private let maxTicksBetweenWrites = 10
+    private var lastWrittenRPM: Double?
+    private var ticksSinceWrite = 0
+
     public init(config: FanConfig) throws {
         self.smc = try SMC()
         self.fan = SMCFan(smc: smc)
@@ -122,15 +135,27 @@ public final class ControlLoop {
         }
         if !config.enabled {
             try fan.restoreAuto()
+            lastWrittenRPM = nil
             return telemetry(target: 0, forced: false, driver: "off")
         }
-        try fan.setTargetRPM(target)
+        let mustWrite = lastWrittenRPM == nil                       // first tick in forced mode
+            || abs(target - lastWrittenRPM!) >= writeDeadbandRPM
+            || (target == maxRPM && lastWrittenRPM != maxRPM)       // safety ceiling: hit max exactly
+            || ticksSinceWrite >= maxTicksBetweenWrites
+        if mustWrite {
+            try fan.setTargetRPM(target)
+            lastWrittenRPM = target
+            ticksSinceWrite = 0
+        } else {
+            ticksSinceWrite += 1
+        }
         return telemetry(target: target, forced: true, driver: driver)
     }
 
     /// Revert to Apple's automatic fan control. Idempotent; safe in handlers.
     public func restore() {
         try? fan.restoreAuto()
+        lastWrittenRPM = nil
     }
 
     public var bounds: (min: Double, max: Double) { (minRPM, maxRPM) }

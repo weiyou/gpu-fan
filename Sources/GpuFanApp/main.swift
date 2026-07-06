@@ -35,13 +35,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Reflect live fan RPM next to the menu-bar icon. Zero-pad to 4 digits
         // and use a monospaced-digit font so the title width never shifts as the
-        // RPM crosses, e.g., 999 -> 1000.
+        // RPM crosses, e.g., 999 -> 1000. Snap to 10 RPM so sensor jitter
+        // doesn't make the last digit flicker every second.
         let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize,
                                                          weight: .regular)
         titleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self, let button = self.statusItem.button else { return }
             if let t = self.model.telemetry, self.model.daemonAlive {
-                let text = String(format: " %04d", Int(t.fanRPM.rounded()))
+                let text = String(format: " %04d", Int((t.fanRPM / 10).rounded()) * 10)
                 button.attributedTitle = NSAttributedString(
                     string: text, attributes: [.font: titleFont])
             } else {
