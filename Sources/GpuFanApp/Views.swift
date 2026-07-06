@@ -86,7 +86,7 @@ struct ContentView: View {
                         statHead(t.forced ? "target" : "mode"); statHead("actual")
                     }
                     GridRow {
-                        statNum(String(format: "%.1f", t.gpuPct))
+                        statNum(pctText(t.gpuPct))
                         statNum(String(format: "%.1f", t.gpuTempC))
                         statNum(String(format: "%.1f", t.dieTempC))
                         Text("→").foregroundColor(.secondary)
@@ -102,6 +102,13 @@ struct ContentView: View {
                 .font(.caption).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// GPU% padded to a fixed "xxx.x" width with figure spaces (U+2007, digit-width)
+    /// so the column doesn't shift when the value crosses 10.0 or 100.0.
+    private func pctText(_ pct: Double) -> String {
+        let s = String(format: "%.1f", pct)
+        return String(repeating: "\u{2007}", count: max(0, 5 - s.count)) + s
     }
 
     /// RPM readout snapped to 10 RPM so sensor jitter doesn't flicker the digits.
